@@ -1,0 +1,295 @@
+---
+He descargado unos datos de kaggle sobre unos pedidos que contienen tres tablas, y he creado tres esquemas, bronze, silver y gold, donde he estado trabajando para intentar
+recrear de la mejor manera como sería trabajar con unas bases de datos reales.
+---
+
+---
+BRONZE:
+En la capa bronze no he hecho muchas modificaciones más que cambiar la variable de un par de columnas que no eran las más adecuadas.
+---
+
+
+create or replace table kaggle.bronze.list_of_orders as
+select
+    to_timestamp (order_date, 'dd-mm-yyyy') as order_date,
+    order_id,
+    customername,
+    state,
+    city,
+from kaggle.public.list_of_orders
+
+
+---
+
+create or replace table kaggle.bronze.sales_target as
+select
+    to_date (month_of_date, 'mm-dd') as month_of_date,
+    category,
+    target,
+from kaggle.public.sales_target
+
+
+---
+
+create or replace table kaggle.bronze.order_details as
+select
+    *
+from kaggle.public.order_details
+
+---
+
+
+SILVER:
+En la capa silver he querido limpiar un poco los datos como comprobando valores duplicados y haciendo algunas transformaciones para ayudar en futuros análisis.
+
+
+---
+
+
+CREATE OR REPLACE TABLE KAGGLE.SILVER.LIST_OF_ORDERS_CLEAN AS
+SELECT DISTINCT 
+    * 
+FROM KAGGLE.BRONZE.LIST_OF_ORDERS;
+
+
+---
+
+
+CREATE OR REPLACE TABLE KAGGLE.SILVER.ORDER_DETAILS_CLEAN AS
+SELECT DISTINCT 
+    * 
+FROM KAGGLE.BRONZE.ORDER_DETAILS;
+
+
+---
+
+
+CREATE OR REPLACE TABLE KAGGLE.SILVER.SALES_TARGET_CLEAN AS
+SELECT DISTINCT 
+    * 
+FROM KAGGLE.BRONZE.SALES_TARGET;
+
+
+---
+
+
+CREATE OR REPLACE TABLE kaggle.silver.orders_with_details AS
+SELECT 
+    o.order_id,
+    o.order_date,
+    o.customername,
+    o.state,
+    o.city,
+    d.amount,
+    d.profit,
+    d.quantity,
+    d.category,
+    d.subcategory
+FROM 
+    kaggle.bronze.list_of_orders o
+JOIN 
+    kaggle.bronze.order_details d
+ON 
+    o.order_id = d.order_id;
+
+
+---
+Esta tabla combina datos de pedidos y detalles de pedidos en una sola tabla, así facilitamos la información de cada pedido.
+---
+
+
+CREATE OR REPLACE TABLE kaggle.silver.sales_summary_by_category AS
+SELECT 
+    d.category,
+    SUM(d.amount) AS total_sales,
+    SUM(d.profit) AS total_profit
+FROM 
+    kaggle.bronze.order_details d
+GROUP BY 
+    d.category;
+
+
+---
+Proporciona un resumen de ventas y ganancias por categoría.
+---
+
+
+
+CREATE OR REPLACE TABLE kaggle.silver.top_customers_by_orders AS
+SELECT 
+    o.customername,
+    COUNT(o.order_id) AS total_orders,
+    SUM(d.amount) AS total_spent
+FROM 
+    kaggle.bronze.list_of_orders o
+JOIN 
+    kaggle.bronze.order_details d
+ON 
+    o.order_id = d.order_id
+GROUP BY 
+    o.customername
+ORDER BY 
+    total_orders DESC;
+
+
+
+---
+Identifica a los clientes con más pedidos y su gasto total.
+---
+
+
+
+CREATE OR REPLACE TABLE kaggle.silver.monthly_sales_summary AS
+SELECT 
+    TO_CHAR(order_date, 'YYYY-MM') AS month_of_date,
+    SUM(d.amount) AS total_sales,
+    SUM(d.profit) AS total_profit
+FROM 
+    kaggle.bronze.list_of_orders o
+JOIN 
+    kaggle.bronze.order_details d
+ON 
+    o.order_id = d.order_id
+GROUP BY 
+    month_of_date;
+
+
+
+---
+Resume las ventas y ganancias mensuales.
+---
+GOLD:
+En esta última capa voy a hacer algunas transformaciones que me parecen más específicas.
+---
+
+
+CREATE OR REPLACE TABLE KAGGLE.GOLD.MONTHLY_SALES_BY_CATEGORY AS
+SELECT 
+    TO_CHAR(o.ORDER_DATE, 'YYYY-MM') AS month_of_date,
+    d.CATEGORY,
+    SUM(d.AMOUNT) AS total_sales,
+    SUM(d.PROFIT) AS total_profit
+FROM 
+    KAGGLE.SILVER.LIST_OF_ORDERS_CLEAN o
+JOIN 
+    KAGGLE.SILVER.ORDER_DETAILS_CLEAN d
+ON 
+    o.ORDER_ID = d.ORDER_ID
+GROUP BY 
+    month_of_date,
+    d.CATEGORY;
+
+
+---
+Esta tabla proporciona un resumen de las ventas y ganancias por mes y categoría.
+---
+
+
+
+CREATE OR REPLACE TABLE KAGGLE.GOLD.ANNUAL_SALES_BY_STATE AS
+SELECT 
+    EXTRACT(YEAR FROM o.ORDER_DATE) AS year,
+    o.STATE,
+    SUM(d.AMOUNT) AS total_sales,
+    SUM(d.PROFIT) AS total_profit
+FROM 
+    KAGGLE.SILVER.LIST_OF_ORDERS_CLEAN o
+JOIN 
+    KAGGLE.SILVER.ORDER_DETAILS_CLEAN d
+ON 
+    o.ORDER_ID = d.ORDER_ID
+GROUP BY 
+    year,
+    o.STATE;
+
+
+---
+Esta tabla agrupa las ventas y ganancias dependiendo del estado anualmente.
+---
+
+
+
+CREATE OR REPLACE TABLE KAGGLE.GOLD.TOP_CUSTOMERS_BY_SPENDING AS
+SELECT 
+    o.CUSTOMERNAME,
+    SUM(d.AMOUNT) AS total_spent
+FROM 
+    KAGGLE.SILVER.LIST_OF_ORDERS_CLEAN o
+JOIN 
+    KAGGLE.SILVER.ORDER_DETAILS_CLEAN d
+ON 
+    o.ORDER_ID = d.ORDER_ID
+GROUP BY 
+    o.CUSTOMERNAME
+ORDER BY 
+    total_spent DESC;
+
+
+---
+Esta tabla identifica a los clientes que más han gastado
+---
+
+
+CREATE OR REPLACE TABLE KAGGLE.GOLD.SALES_BY_SUB_CATEGORY AS
+SELECT 
+    d.CATEGORY,
+    d.SUB_CATEGORY,
+    SUM(d.AMOUNT) AS total_sales,
+    SUM(d.PROFIT) AS total_profit
+FROM 
+    KAGGLE.SILVER.ORDER_DETAILS_CLEAN d
+GROUP BY 
+    d.CATEGORY,
+    d.SUB_CATEGORY;
+
+
+---
+Esta tabla desglosa las ventas y ganancias en las subcategorías.
+---
+
+
+
+CREATE OR REPLACE TABLE KAGGLE.GOLD.SALES_TRENDS_BY_CITY AS
+SELECT 
+    TO_CHAR(o.ORDER_DATE, 'YYYY-MM') AS month_of_date,
+    o.CITY,
+    SUM(d.AMOUNT) AS total_sales,
+    SUM(d.PROFIT) AS total_profit
+FROM 
+    KAGGLE.SILVER.LIST_OF_ORDERS_CLEAN o
+JOIN 
+    KAGGLE.SILVER.ORDER_DETAILS_CLEAN d
+ON 
+    o.ORDER_ID = d.ORDER_ID
+GROUP BY 
+    month_of_date,
+    o.CITY;
+
+
+
+---
+Esta tabla controla las tendencias de venta por ciudad.
+---
+
+
+
+CREATE OR REPLACE TABLE KAGGLE.GOLD.ORDER_STATISTICS_BY_CUSTOMER AS
+SELECT 
+    o.CUSTOMERNAME,
+    COUNT(o.ORDER_ID) AS total_orders,
+    AVG(d.QUANTITY) AS avg_quantity_per_order
+FROM 
+    KAGGLE.SILVER.LIST_OF_ORDERS_CLEAN o
+JOIN 
+    KAGGLE.SILVER.ORDER_DETAILS_CLEAN d
+ON 
+    o.ORDER_ID = d.ORDER_ID
+GROUP BY 
+    o.CUSTOMERNAME;
+
+
+
+---
+Esta tabla nos enseña cuantos pedidos ha realizado cada cliente.
+---
+
